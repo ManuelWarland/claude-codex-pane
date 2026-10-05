@@ -1,0 +1,12 @@
+{
+  "name": "codex-pane",
+  "owner": { "name": "Manuel Warland" },
+  "metadata": { "description": "A Claude Code side pane that follows your Codex CLI session live and relays messages both ways, with your approval." },
+  "plugins": [
+    {
+      "name": "codex-pane",
+      "source": "./plugin",
+      "description": "Follow your Codex CLI session live in a Claude Code pane; relay the current exchange to Claude, or Claude's answer to Codex, one keypress and one confirmation at a time."
+    }
+  ]
+}

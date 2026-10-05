@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+plugin/.claude-plugin/types/
+plugin/tsconfig.json
+.DS_Store
+Thumbs.db
+
+# Local working files of the agents (Codex, Graphify)
+.codex/
+AGENTS.md
+graphify-out/

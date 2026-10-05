@@ -1,0 +1,23 @@
+{
+  "name": "codex-pane",
+  "version": "1.0.0",
+  "description": "Follow your Codex CLI session live in a Claude Code pane; relay the current exchange to Claude, or Claude's answer to Codex, one keypress and one confirmation at a time.",
+  "author": { "name": "Manuel Warland" },
+  "license": "MIT",
+  "repository": "https://github.com/ManuelWarland/claude-codex-pane",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the pane and of the relayed messages. auto follows your Claude Code language setting.",
+      "default": "auto",
+      "options": ["auto", "en", "fr"]
+    },
+    "userName": {
+      "type": "string",
+      "title": "Your name",
+      "description": "How relayed messages refer to you (e.g. \"Alex\"). Empty: \"the user\".",
+      "default": ""
+    }
+  }
+}
