@@ -2,7 +2,7 @@
 
 **Français** | [English](README.md)
 
-Un panneau dans Claude Code qui suit en direct ta session Codex CLI, et qui relaie les messages entre les deux IA quand tu le décides : une touche, une confirmation, rien de plus.
+Un panneau dans Claude Code qui suit en direct ta session Codex CLI. À ta demande, il envoie l'échange en cours à Claude. Dans l'autre sens, il place la réponse de Claude dans la file de Codex, seulement après ta confirmation.
 
 ![Le panneau Codex à droite de Claude Code : l'échange de Codex transmis à Claude, et la relecture de Claude avec un bloc codex](docs/pane.png)
 

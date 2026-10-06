@@ -2,7 +2,7 @@
 
 [Français](README.fr.md) | **English**
 
-A side pane in Claude Code that follows your Codex CLI session live, and relays messages between the two agents when you decide to, one keypress and one confirmation at a time.
+A side pane in Claude Code that follows your Codex CLI session live. On request, it sends the current exchange to Claude, and it queues Claude's answer in Codex only after you confirm.
 
 ![The Codex pane on the right of Claude Code: Codex's exchange relayed to Claude, and Claude's review with a codex block](docs/pane.png)
 
