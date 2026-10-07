@@ -10,7 +10,7 @@ You run Codex in one terminal and Claude Code in another. Instead of copying ans
 
 - the pane shows what Codex is doing right now: working or idle, the last command it ran or file it changed, and the latest messages;
 - **Send to Claude** puts the current exchange (your last message to Codex and every reply since) into Claude's conversation;
-- **Send to Codex** queues Claude's latest answer into your Codex session, after you confirm. If Claude wrote one or more ` ```codex ` blocks, only those go, so the instructions meant for you stay out.
+- **Send to Codex** queues Claude's latest answer into your Codex session, after you confirm. Only the ` ```codex ` blocks Claude wrote go, so the instructions meant for you stay out. An answer without such a block sends nothing.
 
 Nothing is relayed automatically. The two agents never talk to each other behind your back.
 
@@ -44,7 +44,7 @@ Then type `/codex` to open the pane.
 | Key | Button | What it does |
 | --- | --- | --- |
 | `c` | Send to Claude | Sends the current exchange with Codex to Claude. If Claude is busy, it goes as soon as Claude is free. |
-| `x` | Send to Codex | Sends Claude's latest answer (or only its ` ```codex ` blocks) to the Codex session shown, through `codex queue`. You confirm first. If Codex is working, the message waits for the end of its task. |
+| `x` | Send to Codex | Sends the ` ```codex ` blocks of Claude's latest answer to the Codex session shown, through `codex queue`. You confirm first. If Codex is working, the message waits for the end of its task. |
 | `s` | Switch session | Follow the most recently active open Codex session (automatic), or pin one of the open sessions (up to 3, shown with their folder). Closed sessions are not offered. |
 | `r` | Refresh | Reads the session again (it is read every 5 seconds anyway). |
 
@@ -70,15 +70,15 @@ it prints Claude Code's latest answer.
 
 ## Privacy
 
-The plugin itself opens no network connection and sends nothing anywhere. It reads Codex's session files (`$CODEX_HOME/sessions`, by default `~/.codex/sessions`), and `read_claude.py` reads Claude Code's transcripts (`~/.claude/projects`), both read only. The only write is `codex queue`, when you confirm a send.
+The plugin itself opens no network connection and sends nothing anywhere. It reads Codex's session files (`$CODEX_HOME/sessions`, by default `~/.codex/sessions`), and `read_claude.py` reads Claude Code's transcripts (`~/.claude/projects`), both read only. The only write is `codex queue`, when you confirm a send. To survive a reload of the plugin, the pane also keeps the ` ```codex ` blocks of Claude's latest answer in Claude Code's session state: only those blocks, never the rest of the answer, and nothing when the answer has none.
 
 What you relay does leave your machine, like anything you type to an agent: an exchange sent to Claude goes to Anthropic, an answer sent to Codex goes to OpenAI.
 
 ## Limits
 
 - Tested on Windows 11 only so far. macOS and Linux should work (only Python and standard paths are used); reports are welcome.
-- Only Codex sessions opened in a terminal are followed: subagents, `codex exec` runs and editor integrations are left out.
-- Claude's latest answer is kept in memory: after a reload of the plugin, wait for Claude's next answer before using **Send to Codex**.
+- Only Codex sessions opened in a terminal are followed, with or without the shared background app server: subagents, `codex exec` runs, the Codex app and editor integrations are left out.
+- Claude's latest answer is everything Claude wrote during its last turn, including the text written before a tool call. Its ` ```codex ` blocks survive a reload of the plugin (see Privacy).
 - Codex's session files are not a documented format. A Codex update can break the reading; `plugin/hooks/read_codex.py` is the one file to fix.
 
 ## Development
@@ -86,6 +86,7 @@ What you relay does leave your machine, like anything you type to an agent: an e
 ```
 claude plugin validate plugin
 claude plugin test plugin
+python -m unittest discover -s plugin/tests
 ```
 
 ## License

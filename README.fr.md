@@ -12,7 +12,7 @@ Codex tourne dans un terminal, Claude Code dans un autre. Au lieu de copier les 
 
 - le panneau montre ce que fait Codex en ce moment : au travail ou au repos, la dernière commande lancée ou le dernier fichier modifié, et les derniers messages ;
 - **Transmettre à Claude** dépose l'échange en cours (ton dernier message à Codex et toutes ses réponses depuis) dans la conversation de Claude ;
-- **Envoyer à Codex** met la dernière réponse de Claude dans la file de ta session Codex, après ta confirmation. Si Claude a écrit un ou plusieurs blocs ` ```codex `, seuls ces blocs partent : les consignes qui te sont destinées restent de ton côté.
+- **Envoyer à Codex** met la dernière réponse de Claude dans la file de ta session Codex, après ta confirmation. Seuls les blocs ` ```codex ` écrits par Claude partent : les consignes qui te sont destinées restent de ton côté. Une réponse sans bloc de ce type n'envoie rien.
 
 Rien ne part tout seul. Les deux IA ne se parlent jamais dans ton dos.
 
@@ -48,7 +48,7 @@ En français, les touches sont :
 | Touche | Bouton | Ce qu'il fait |
 | --- | --- | --- |
 | `t` | Transmettre à Claude | Envoie à Claude l'échange en cours avec Codex. Si Claude est occupé, l'envoi part dès qu'il est libre. |
-| `e` | Envoyer à Codex | Envoie la dernière réponse de Claude (ou seulement ses blocs ` ```codex `) à la session Codex affichée, via `codex queue`. Tu confirmes d'abord. Si Codex travaille, le message attend la fin de sa tâche. |
+| `e` | Envoyer à Codex | Envoie les blocs ` ```codex ` de la dernière réponse de Claude à la session Codex affichée, via `codex queue`. Tu confirmes d'abord. Si Codex travaille, le message attend la fin de sa tâche. |
 | `c` | Changer de session | Suit la session Codex ouverte la plus récemment active (automatique), ou en fixe une parmi les sessions ouvertes (jusqu'à 3, affichées avec leur dossier). Les sessions terminées ne sont pas proposées. |
 | `r` | Rafraîchir | Relit la session (elle est relue toutes les 5 secondes de toute façon). |
 
@@ -74,15 +74,15 @@ de ce qu'il affiche : c'est la dernière réponse de Claude Code.
 
 ## Confidentialité
 
-Le mod lui-même n'ouvre aucune connexion réseau et n'envoie rien nulle part. Il lit les fichiers de session de Codex (`$CODEX_HOME/sessions`, par défaut `~/.codex/sessions`) et `read_claude.py` lit les transcriptions de Claude Code (`~/.claude/projects`), les deux en lecture seule. La seule écriture est `codex queue`, quand tu confirmes un envoi.
+Le mod lui-même n'ouvre aucune connexion réseau et n'envoie rien nulle part. Il lit les fichiers de session de Codex (`$CODEX_HOME/sessions`, par défaut `~/.codex/sessions`) et `read_claude.py` lit les transcriptions de Claude Code (`~/.claude/projects`), les deux en lecture seule. La seule écriture est `codex queue`, quand tu confirmes un envoi. Pour survivre à un rechargement du mod, le panneau garde aussi les blocs ` ```codex ` de la dernière réponse de Claude dans l'état de la session de Claude Code : ces blocs seulement, jamais le reste de la réponse, et rien quand la réponse n'en a pas.
 
 Ce que tu relaies quitte bien ta machine, comme tout ce que tu tapes à une IA : un échange transmis à Claude part chez Anthropic, une réponse envoyée à Codex part chez OpenAI.
 
 ## Limites
 
 - Testé sous Windows 11 uniquement pour l'instant. macOS et Linux devraient fonctionner (seuls Python et des chemins standard sont utilisés) ; les retours sont les bienvenus.
-- Seules les sessions Codex ouvertes dans un terminal sont suivies : les sous-agents, `codex exec` et les intégrations d'éditeur sont écartés.
-- La dernière réponse de Claude est gardée en mémoire : après un rechargement du mod, attends la réponse suivante de Claude avant d'utiliser **Envoyer à Codex**.
+- Seules les sessions Codex ouvertes dans un terminal sont suivies, avec ou sans le serveur d'arrière-plan partagé : les sous-agents, `codex exec`, l'application Codex et les intégrations d'éditeur sont écartés.
+- La dernière réponse de Claude, c'est tout ce que Claude a écrit pendant son dernier tour, y compris le texte écrit avant un appel d'outil. Ses blocs ` ```codex ` survivent à un rechargement du mod (voir Confidentialité).
 - Le format des fichiers de session de Codex n'est pas documenté. Une mise à jour de Codex peut casser la lecture ; `plugin/hooks/read_codex.py` est le seul fichier à corriger.
 
 ## Développement
@@ -90,6 +90,7 @@ Ce que tu relaies quitte bien ta machine, comme tout ce que tu tapes à une IA :
 ```
 claude plugin validate plugin
 claude plugin test plugin
+python -m unittest discover -s plugin/tests
 ```
 
 ## Licence

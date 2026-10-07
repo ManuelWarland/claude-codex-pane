@@ -8,8 +8,9 @@
 //   working. (Not the last "final" answer: a long task can run for many minutes and
 //   that answer would be stale.)
 // - "Send to Codex" sends Claude's latest answer to the session shown in the pane,
-//   through `codex queue`, after you confirm. Only its ```codex blocks go when it
-//   has some.
+//   through `codex queue`, after you confirm. Only its ```codex blocks go; an
+//   answer without one sends nothing. The answer is every text of Claude's last turn (a block written
+//   before a tool call counts), kept across reloads of the plugin.
 // - "Switch session" follows the most recent session (automatic) or one you pick.
 // - A toast says when Codex finishes a task.
 //
@@ -25,6 +26,9 @@ const HISTORY_MESSAGES = 20
 const WHEEL_STEP = 3 // lines per wheel notch
 const MAX_TO_CODEX_CHARS = 20000
 const PYTHONS = ['python3', 'python', 'py']
+// Kept by the host across reloads of the plugin (see types/index.d.ts).
+const LAST_ANSWER = { plugin: 'codex-pane', key: 'lastAnswer' }
+const SENT_TO_CODEX_AT = { plugin: 'codex-pane', key: 'sentToCodexAt' }
 
 // ---- Strings -----------------------------------------------------------------
 
@@ -85,6 +89,7 @@ const STRINGS = {
     noThread: 'No Codex session to send to',
     noAnswer: 'No answer from Claude to send since the pane was loaded',
     answerAlreadySent: 'This answer from Claude was already sent to Codex',
+    noCodexBlock: "No ```codex block in Claude's latest answer: nothing sent",
     askToCodex: (session, busy, partial, chars, excerpt) =>
       'Send to Codex (session ' + session + (busy ? ', working: the message will wait for the end of its task' : ', idle') + ') ' +
       (partial ? 'the ```codex blocks of Claude\'s latest answer' : 'Claude\'s whole latest answer (it has no ```codex block)') +
@@ -158,6 +163,7 @@ const STRINGS = {
     noThread: 'Aucune session Codex à qui envoyer',
     noAnswer: 'Aucune réponse de Claude à envoyer depuis le chargement du panneau',
     answerAlreadySent: 'Cette réponse de Claude a déjà été envoyée à Codex',
+    noCodexBlock: "Aucun bloc ```codex dans la dernière réponse de Claude : rien n'est envoyé",
     askToCodex: (session, busy, partial, chars, excerpt) =>
       'Envoyer à Codex (session ' + session + (busy ? ', il travaille : le message attendra sa fin' : ', au repos') + ') ' +
       (partial ? 'les blocs ```codex de la dernière réponse de Claude' : 'la dernière réponse de Claude entière (aucun bloc ```codex)') +
@@ -294,8 +300,8 @@ export function sessionLabel(s, L) {
 
 // The part of Claude's answer meant for Codex: the code blocks labelled `codex`
 // (```codex … ```, or ````codex for a block that itself holds code), joined.
-// Without such a block the whole answer goes: sent whole, an answer also carries
-// the instructions meant for the user.
+// Without such a block, `partial` is false and "Send to Codex" sends nothing:
+// that answer is meant for the user.
 export function extractForCodex(answer) {
   const text = String(answer ?? '').replace(/\r\n?/g, '\n')
   const blocks = []
@@ -306,6 +312,34 @@ export function extractForCodex(answer) {
     if (m[2].trim()) blocks.push(m[2].trim())
   }
   return blocks.length ? { text: blocks.join('\n\n'), partial: true } : { text: text.trim(), partial: false }
+}
+
+// Every text Claude wrote during the last turn, oldest first. `turn.complete`
+// only carries the final text: a ```codex block written before a tool call
+// would be lost. The turn starts after the last user message that is a prompt
+// (a user message holding tool results belongs to the turn, even with text: a
+// message typed while Claude works rides along with the tool results). Without
+// such a prompt in sight (a compacted conversation), only the final answer
+// counts, so that an older turn never leaks in. The final answer is added if
+// the transcript does not hold it yet.
+export function turnText(messages, finalAnswer) {
+  const texts = []
+  const list = Array.isArray(messages) ? messages : []
+  let bounded = false
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i]
+    if (!m) continue
+    if (m.role === 'user') {
+      if (m.toolResults && m.toolResults.length) continue
+      bounded = true
+      break
+    }
+    if (m.role === 'assistant' && String(m.text ?? '').trim()) texts.unshift(String(m.text).trim())
+  }
+  const final = String(finalAnswer ?? '').trim()
+  if (!bounded) return final
+  if (final && texts[texts.length - 1] !== final) texts.push(final)
+  return texts.join('\n\n')
 }
 
 export function toCodexMessage(answer, partial, L) {
@@ -326,7 +360,7 @@ const state = {
   back: 0, // lines scrolled up from the bottom (0 = follows the last message)
   maxBack: 0, // limit computed at the last drawing
   pinned: null, // file of the session the user picked; null = the most recent
-  lastAnswer: null, // Claude's latest answer (main thread): { text, at }
+  lastAnswer: null, // the ```codex blocks of Claude's latest answer (main thread): { codex, at }; codex is '' without a block
   sentToCodexAt: null, // `at` of the latest answer already sent to Codex
   sendingToCodex: false,
   python: null, // the Python command that worked
@@ -454,7 +488,9 @@ async function sendToCodex($) {
   if (!d || !d.thread_id) return $.ui.toast(s.noThread)
   if (!answer) return $.ui.toast(s.noAnswer)
   if (state.sentToCodexAt === answer.at) return $.ui.toast(s.answerAlreadySent)
-  const part = extractForCodex(answer.text)
+  // An answer without a ```codex block is meant for the user, not for Codex.
+  if (!answer.codex) return $.ui.toast(s.noCodexBlock)
+  const part = { text: answer.codex, partial: true }
   const question = s.askToCodex(sessionName(d, state.L), d.busy, part.partial, part.text.length, clip(part.text.replace(/\s+/g, ' '), 90))
   let choice
   try {
@@ -469,6 +505,11 @@ async function sendToCodex($) {
     const run = await $.process.run(['codex', 'queue', '--thread', d.thread_id, '--message', toCodexMessage(part.text, part.partial, state.L)], { timeoutMs: 60000 })
     if (run.exitCode === 0) {
       state.sentToCodexAt = answer.at
+      try {
+        await $.state.set(SENT_TO_CODEX_AT, answer.at)
+      } catch {
+        // kept in memory only
+      }
       $.ui.toast(s.sentToCodex)
     } else {
       $.ui.toast(s.queueFailed('code ' + run.exitCode + ', ' + clip((run.stderr || run.stdout || '').trim(), 160)))
@@ -574,6 +615,15 @@ export function register(on, options) {
         // settings unreadable: English stays
       }
     }
+    // Claude's latest answer and the last one sent survive a reload.
+    try {
+      const kept = await $.state.get(LAST_ANSWER)
+      if (kept.value && typeof kept.value.codex === 'string' && !state.lastAnswer) state.lastAnswer = kept.value
+      const sent = await $.state.get(SENT_TO_CODEX_AT)
+      if (typeof sent.value === 'number' && state.sentToCodexAt === null) state.sentToCodexAt = sent.value
+    } catch {
+      // nothing kept
+    }
     // Frequent reads while the pane is open, sparser while closed (for the toast).
     $.clock.after(0, () => poll($))
     $.clock.every(POLL_OPEN_MS, async () => {
@@ -614,11 +664,26 @@ export function register(on, options) {
     return next(e)
   })
 
-  // Keeps Claude's latest answer (main thread) for "Send to Codex".
+  // Keeps the ```codex blocks of Claude's latest turn (main thread), from every
+  // text of the turn, for "Send to Codex". Nothing else of the answer is kept.
+  // They are held in the session's state so that they survive a reload.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (!e.agentId && !e.isAborted && e.answer) {
-      state.lastAnswer = { text: e.answer, at: await $.clock.now() }
+    if (!e.agentId && !e.isAborted) {
+      let messages = []
+      try {
+        messages = await $.session.messages()
+      } catch {
+        // transcript unreadable: the final answer alone
+      }
+      const part = extractForCodex(turnText(messages, e.answer))
+      // Also kept when empty: an answer without a block replaces an older one.
+      state.lastAnswer = { codex: part.partial ? part.text : '', at: await $.clock.now() }
+      try {
+        await $.state.set(LAST_ANSWER, state.lastAnswer)
+      } catch {
+        // kept in memory only
+      }
     }
     return result
   })

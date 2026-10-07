@@ -12,6 +12,7 @@ import {
   sessionName,
   toCodexMessage,
   transmission,
+  turnText,
   windowOf,
   wrapLines,
 } from '../hooks/codex-pane.mjs'
@@ -318,5 +319,125 @@ test('a closed session is marked as such', { options: { language: 'en' } }, asyn
   await $.command.run({ command: 'codex', args: '' } as any)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
   expect(await ui.find({ type: 'Text', text: /session todo-app · 2026-10-03 19:37 · automatic · closed/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// Incident of 07/10/2026: the ```codex block was written before a tool call,
+// then a final text without a block; only that final text was kept.
+const TURN = [
+  { role: 'user', text: 'Review it', toolUses: [] },
+  { role: 'assistant', text: 'Here is the message:\n\n```codex\nFix points 1 to 4.\n```', toolUses: [{ name: 'Edit' }] },
+  { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'a', text: 'ok', isError: false }] },
+  { role: 'assistant', text: 'Rule added to CLAUDE.md.', toolUses: [] },
+]
+
+test('the whole turn is kept, not only its final text', () => {
+  const older = [{ role: 'user', text: 'old', toolUses: [] }, { role: 'assistant', text: 'old answer', toolUses: [] }]
+  const all = turnText([...older, ...TURN], 'Rule added to CLAUDE.md.')
+  expect(all).not.toContain('old answer')
+  expect(all).toContain('Fix points 1 to 4.')
+  expect(all.endsWith('Rule added to CLAUDE.md.')).toBe(true)
+  expect(extractForCodex(all)).toEqual({ text: 'Fix points 1 to 4.', partial: true })
+  // Final answer not yet in the transcript: added once.
+  expect(turnText(TURN.slice(0, 3), 'Rule added to CLAUDE.md.').endsWith('Rule added to CLAUDE.md.')).toBe(true)
+  expect(turnText([], 'Only this.')).toBe('Only this.')
+  expect(turnText(undefined, '')).toBe('')
+})
+
+test('turn bounds: a message typed during the turn, no prompt in sight', () => {
+  // A message typed while Claude works arrives with the tool results: same turn.
+  const typed = [
+    { role: 'user', text: 'Previous question', toolUses: [] },
+    { role: 'assistant', text: '```codex\nOld block.\n```', toolUses: [] },
+    { role: 'user', text: 'Review it', toolUses: [] },
+    { role: 'assistant', text: '```codex\nNew block.\n```', toolUses: [{ name: 'Bash' }] },
+    { role: 'user', text: 'also check X', toolUses: [], toolResults: [{ tool_use_id: 'b', text: 'ok', isError: false }] },
+    { role: 'assistant', text: 'Done.', toolUses: [] },
+  ]
+  const all = turnText(typed, 'Done.')
+  expect(all).toContain('New block.')
+  expect(all).not.toContain('Old block.')
+  // No prompt found (compacted conversation): the final answer alone, never an older turn.
+  const compacted = [
+    { role: 'assistant', text: '```codex\nOld block.\n```', toolUses: [{ name: 'Edit' }] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'c', text: 'ok', isError: false }] },
+    { role: 'assistant', text: 'Final.', toolUses: [] },
+  ]
+  expect(turnText(compacted, 'Final.')).toBe('Final.')
+})
+
+test('only the ```codex blocks are kept in the state, nothing else', { options: { language: 'en' } }, async ($, on) => {
+  const written: any[] = []
+  mock.clock(on, { now: 0 })
+  on('session.messages', () => ({ value: TURN }))
+  on('state.set', ($: any, e: any) => {
+    written.push(e)
+    return { value: { isSet: true, version: 1 } }
+  })
+  on('turn.complete', () => ({ text: '' }))
+  await $.turn.complete({ turnId: 't4', answer: 'Rule added to CLAUDE.md.', durationMs: 5, isAborted: false, reason: 'answer' } as any)
+  const set = written.find((w) => w.key === 'lastAnswer' || (w.ref && w.ref.key === 'lastAnswer'))
+  expect(set).toBeDefined()
+  const kept: any = set.value
+  expect(kept.codex).toBe('Fix points 1 to 4.')
+  expect(JSON.stringify(kept)).not.toContain('Rule added')
+  expect(JSON.stringify(kept)).not.toContain('Here is the message')
+})
+
+test('an answer without a ```codex block sends nothing', { options: { language: 'en' } }, async ($, on) => {
+  const runs: string[][] = []
+  const toasts: string[] = []
+  const asked: string[] = []
+  mock.clock(on, { now: 0 })
+  on('process.run', ($: any, e: any) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: JSON.stringify({ ...DATA, busy: false }), stderr: '' } }
+  })
+  on('session.messages', () => ({ value: [] }))
+  on('tool.call', ($: any, e: any) => {
+    if (e.tool === 'AskUserQuestion') asked.push(e.questions[0].question)
+    return { result: { answers: { [e.questions[0].question]: 'Send' } } }
+  })
+  on('ui.toast', ($: any, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.command.run({ command: 'codex', args: '' } as any)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await $.turn.complete({ turnId: 't3', answer: 'Instructions for you only.', durationMs: 5, isAborted: false, reason: 'answer' } as any)
+  await ui.press({ key: 'to-codex' })
+  expect(toasts.at(-1)).toContain('No ```codex block')
+  expect(asked.length).toBe(0)
+  expect(runs.some((r) => r[0] === 'codex')).toBe(false)
+  await ui.unmount()
+})
+
+test('Send to Codex finds a ```codex block written before a tool call', { options: { language: 'en' } }, async ($, on) => {
+  const runs: string[][] = []
+  mock.clock(on, { now: 0 })
+  on('process.run', ($: any, e: any) => {
+    runs.push([...e.argv])
+    if (e.argv[0] === 'codex') return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    return { value: { exitCode: 0, stdout: JSON.stringify({ ...DATA, busy: false }), stderr: '' } }
+  })
+  on('session.messages', () => ({ value: TURN }))
+  on('tool.call', ($: any, e: any) => {
+    if (e.tool === 'AskUserQuestion') return { result: { answers: { [e.questions[0].question]: 'Send' } } }
+    return { result: '' }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.command.run({ command: 'codex', args: '' } as any)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await $.turn.complete({ turnId: 't2', answer: 'Rule added to CLAUDE.md.', durationMs: 5, isAborted: false, reason: 'answer' } as any)
+  await ui.press({ key: 'to-codex' })
+  const queue = runs.find((r) => r[0] === 'codex')!
+  expect(queue[5]).toContain('Fix points 1 to 4.')
+  expect(queue[5]).not.toContain('Rule added')
   await ui.unmount()
 })

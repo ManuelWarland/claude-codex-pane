@@ -165,12 +165,16 @@ def session_meta(path):
 
 
 def is_terminal_session(path):
-    """True for a conversation the user opened in a Codex terminal (source "cli").
+    """True for a conversation the user opened in a Codex terminal.
 
-    Subagents (source {"subagent": ...}), `codex exec` runs (source "exec") and
-    editor integrations (source "vscode") are left out.
+    Its source is "cli", or "vscode" with the originator "codex-tui" when the
+    terminal runs through the shared app-server daemon. Subagents (source
+    {"subagent": ...}), `codex exec` runs (source "exec") and other app-server
+    clients (source "vscode": the Codex app, editors, other tools) are left out.
     """
-    return session_meta(path).get("source") == "cli"
+    meta = session_meta(path)
+    source = meta.get("source")
+    return source == "cli" or (source == "vscode" and meta.get("originator") == "codex-tui")
 
 
 def session_name(path):
